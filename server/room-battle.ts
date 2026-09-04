@@ -1312,6 +1312,19 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		const result = await logPromise;
 		return result;
 	}
+	async getState(): Promise<AnyObject | void> {
+    void this.stream.write('>requeststate');
+
+    const statePromise = new Promise<string[]>((resolve, reject) => {
+        if (!this.dataResolvers) this.dataResolvers = [];
+        this.dataResolvers.push([resolve, reject]);
+    });
+
+    const result = await statePromise;
+    if (!result[0]) return;
+
+    return JSON.parse(result[0]);
+	}
 }
 
 export class RoomBattleStream extends BattleStream {

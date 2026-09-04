@@ -193,6 +193,9 @@ export class BattleStream extends Streams.ObjectReadWriteStream<string> {
 		case 'requestlog':
 			this.push(`requesteddata\n${this.battle!.inputLog.join('\n')}`);
 			break;
+		case 'requeststate':
+			this.push(`requesteddata\n${JSON.stringify(this.battle!.toJSON())}`);
+			break;
 		case 'requestexport':
 			this.push(`requesteddata\n${this.battle!.prngSeed}\n${this.battle!.inputLog.join('\n')}`);
 			break;
