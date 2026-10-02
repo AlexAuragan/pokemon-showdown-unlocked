@@ -14,6 +14,135 @@ import { Teams } from './teams';
 import { Battle, extractChannelMessages } from './battle';
 import type { ChoiceRequest } from './side';
 
+function serializeRequestState(battle: Battle): AnyObject {
+	const serializeVolatiles = (pokemon: Pokemon) => {
+		const volatiles: AnyObject = {};
+
+		for (const id in pokemon.volatiles) {
+			// The SDK only needs volatile presence, except for two-turn moves,
+			// where it also validates which move is being charged.
+			if (id === 'twoturnmove') {
+				const state = pokemon.volatiles[id];
+				volatiles[id] = {
+					move: state.move?.id || state.move || '',
+				};
+			} else {
+				volatiles[id] = {};
+			}
+		}
+
+		return volatiles;
+	};
+
+	const serializePokemon = (pokemon: Pokemon): AnyObject => ({
+		set: {
+			name: pokemon.name,
+			speciesId: pokemon.baseSpecies.id,
+			level: pokemon.level,
+			moves: pokemon.set.moves,
+			shiny: !!pokemon.set.shiny,
+			pokeball: pokemon.pokeball,
+		},
+
+		speciesState: {
+			id: pokemon.species.id,
+		},
+
+		details: pokemon.details,
+		gender: pokemon.gender,
+
+		hp: pokemon.hp,
+		maxhp: pokemon.maxhp,
+		fainted: pokemon.fainted,
+		isActive: pokemon.isActive,
+
+		status: pokemon.status,
+
+		types: pokemon.types,
+		transformed: pokemon.transformed,
+
+		boosts: {
+			atk: pokemon.boosts.atk,
+			def: pokemon.boosts.def,
+			spa: pokemon.boosts.spa,
+			spd: pokemon.boosts.spd,
+			spe: pokemon.boosts.spe,
+			accuracy: pokemon.boosts.accuracy,
+			evasion: pokemon.boosts.evasion,
+		},
+
+		baseStoredStats: {
+			hp: pokemon.baseStoredStats.hp,
+			atk: pokemon.baseStoredStats.atk,
+			def: pokemon.baseStoredStats.def,
+			spa: pokemon.baseStoredStats.spa,
+			spd: pokemon.baseStoredStats.spd,
+			spe: pokemon.baseStoredStats.spe,
+		},
+
+		storedStats: {
+			atk: pokemon.storedStats.atk,
+			def: pokemon.storedStats.def,
+			spa: pokemon.storedStats.spa,
+			spd: pokemon.storedStats.spd,
+			spe: pokemon.storedStats.spe,
+		},
+
+		baseAbility: pokemon.baseAbility,
+		ability: pokemon.ability,
+		item: pokemon.item,
+
+		moveSlots: pokemon.moveSlots.map(slot => ({
+			id: slot.id,
+			pp: slot.pp,
+			maxpp: slot.maxpp,
+			disabled: slot.disabled,
+		})),
+
+		volatiles: serializeVolatiles(pokemon),
+	});
+
+	const serializeSide = (side: Side): AnyObject => {
+		const sideConditions: AnyObject = {};
+
+		for (const id in side.sideConditions) {
+			const condition = side.sideConditions[id];
+
+			sideConditions[id] = {
+				layers: condition.layers ?? 1,
+			};
+		}
+
+		return {
+			id: side.id,
+			pokemonLeft: side.pokemonLeft,
+			sideConditions,
+			pokemon: side.pokemon.map(serializePokemon),
+		};
+	};
+
+	const pseudoWeather: AnyObject = {};
+
+	for (const id in battle.field.pseudoWeather) {
+		// The SDK currently only cares about presence, notably Trick Room.
+		pseudoWeather[id] = {};
+	}
+
+	return {
+		turn: battle.turn,
+		gameType: battle.gameType,
+		requestState: battle.requestState,
+		reportPercentages: battle.reportPercentages,
+
+		field: {
+			weather: battle.field.weather,
+			pseudoWeather,
+		},
+
+		sides: battle.sides.map(serializeSide),
+	};
+}
+
 export class BattleStream extends Streams.ObjectReadWriteStream<string> {
 	debug: boolean;
 	noCatch: boolean;
@@ -194,7 +323,9 @@ export class BattleStream extends Streams.ObjectReadWriteStream<string> {
 			this.push(`requesteddata\n${this.battle!.inputLog.join('\n')}`);
 			break;
 		case 'requeststate':
-			this.push(`requesteddata\n${JSON.stringify(this.battle!.toJSON())}`);
+			this.push(
+				`requesteddata\n${JSON.stringify(serializeRequestState(this.battle!))}`
+			);
 			break;
 		case 'requestexport':
 			this.push(`requesteddata\n${this.battle!.prngSeed}\n${this.battle!.inputLog.join('\n')}`);
