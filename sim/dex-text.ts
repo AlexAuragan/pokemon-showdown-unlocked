@@ -4,11 +4,24 @@
  *
  * @license MIT
  */
+import * as path from 'path';
 import {
-	toID, type EffectText, type ModdedEffectText, type OtherNameTable, type TextEffect, type TextLanguage,
+	OTHER_NAME_TABLES, toID,
+	type EffectText, type ModdedEffectText, type OtherNameTable, type TextEffect, type TextLanguage,
 } from './dex-data';
-import { Dex } from './dex';
+import type { DexTable } from './dex';
 import type { TagData } from '../data/tags';
+
+const TEXT_DIR = path.resolve(__dirname, '../data/text');
+
+interface RawTextTableData extends Record<OtherNameTable, DexTable<TranslationString>> {
+	Abilities: DexTable<AbilityText>;
+	Items: DexTable<ItemText>;
+	Moves: DexTable<MoveText>;
+	Pokedex: DexTable<SpeciesText>;
+	Tags: DexTable<TagText>;
+	Default: DexTable<DefaultText>;
+}
 
 type EffectTextTable = 'Abilities' | 'Items' | 'Moves';
 
@@ -41,10 +54,117 @@ TEXT_LANGUAGE_TABLE['en-afd'] = {
 };
 
 export class DexText {
+	private static rawTextCache: { [lang: string]: RawTextTableData | undefined } = {};
 	readonly dex: ModdedDex;
 
 	constructor(dex: ModdedDex) {
 		this.dex = dex;
+	}
+
+	static loadTextFile(
+		name: string, exportName: string, optional = false
+	): DexTable<MoveText | ItemText | AbilityText | TranslationString> {
+		const filePath = `${TEXT_DIR}/${name}`;
+		if (optional) {
+			try {
+				require.resolve(filePath);
+			} catch (e: any) {
+				if (e.code === 'MODULE_NOT_FOUND' || e.code === 'ENOENT') return {};
+				throw e;
+			}
+		}
+		return require(filePath)[exportName];
+	}
+
+	static loadRawTextData(lang: TextLanguage = 'en'): RawTextTableData {
+		lang ||= 'en';
+		const cached = this.rawTextCache[lang];
+		if (cached) return cached;
+		const langDir = lang === 'en' ? `` : `${lang}/`;
+		const optional = lang !== 'en';
+		const otherNameTables = Object.fromEntries(OTHER_NAME_TABLES.map(table => [
+			table, this.loadTextFile(`${langDir}names`, table, optional) || {},
+		])) as Pick<RawTextTableData, OtherNameTable>;
+		const data: RawTextTableData = {
+			Pokedex: this.loadTextFile(
+				`${langDir}pokedex`, 'PokedexText', optional
+			) as DexTable<SpeciesText>,
+			Tags: (this.loadTextFile(`${langDir}tags`, 'TagsText', optional) || {}) as DexTable<TagText>,
+			...otherNameTables,
+			Moves: this.loadTextFile(`${langDir}moves`, 'MovesText', optional) as DexTable<MoveText>,
+			Abilities: this.loadTextFile(`${langDir}abilities`, 'AbilitiesText', optional) as DexTable<AbilityText>,
+			Items: this.loadTextFile(`${langDir}items`, 'ItemsText', optional) as DexTable<ItemText>,
+			Default: this.loadTextFile(`${langDir}default`, 'DefaultText', optional) as DexTable<DefaultText>,
+		};
+		if (lang !== 'en') this.validateTranslations(data, lang);
+		return (this.rawTextCache[lang] = data);
+	}
+
+	static resolveTagsTable(
+		englishTable: DexTable<TagText>, localizedTable: DexTable<TagText>
+	): DexTable<ResolvedTagText> {
+		const FIELDS = ['name', 'hint', 'desc'] as const;
+		const table: DexTable<ResolvedTagText> = {};
+		for (const id in englishTable) {
+			const entry: Partial<ResolvedTagText> = {};
+			for (const field of FIELDS) {
+				const value = localizedTable[id]?.[field] ?? englishTable[id][field];
+				if (value) entry[field] = value;
+			}
+			table[id] = entry as ResolvedTagText;
+		}
+		return table;
+	}
+
+	private static resolveNameTable(
+		englishTable: Record<string, TranslationString>, localizedTable: Record<string, TranslationString>
+	): Record<string, string> {
+		const table: Record<string, string> = {};
+		for (const id in englishTable) {
+			table[id] = localizedTable[id] ?? englishTable[id]!;
+		}
+		for (const id in localizedTable) {
+			if (!(id in englishTable) && localizedTable[id] !== null) {
+				table[id] = localizedTable[id]!;
+			}
+		}
+		return table;
+	}
+
+	static resolveOtherNameTables(
+		englishData: RawTextTableData, localizedData: RawTextTableData
+	): Record<OtherNameTable, DexTable<string>> {
+		return Object.fromEntries(OTHER_NAME_TABLES.map(table => [
+			table, this.resolveNameTable(englishData[table], localizedData[table]),
+		])) as Record<OtherNameTable, DexTable<string>>;
+	}
+
+	private static validateTranslations(value: unknown, lang: string, keyPath = ''): void {
+		if (value === '') {
+			throw new Error(`${lang} translation ${keyPath} must use null to fall back to English`);
+		}
+		if (!value || typeof value !== 'object') return;
+		for (const [key, child] of Object.entries(value)) {
+			this.validateTranslations(child, lang, keyPath ? `${keyPath}.${key}` : key);
+		}
+	}
+
+	static getName(effect: TextEffect, lang: TextLanguage = 'en'): string {
+		if (!('effectType' in effect)) {
+			return this.tagName(effect.name, lang);
+		}
+		let table: EffectTextTable | 'Pokedex';
+		switch (effect.effectType) {
+		case 'Pokemon': table = 'Pokedex'; break;
+		case 'Move': table = 'Moves'; break;
+		case 'Item': table = 'Items'; break;
+		case 'Ability': table = 'Abilities'; break;
+		case 'Nature': return this.otherName('NatureNames', effect.name, lang);
+		case 'Type': case 'EffectType': return this.otherName('TypeNames', effect.name, lang);
+		default: throw new Error(`Unsupported effect type`);
+		}
+		return (this.loadRawTextData(lang)[table][effect.id]?.name ??
+			this.loadRawTextData()[table][effect.id]?.name) || effect.name;
 	}
 
 	languages() {
@@ -64,7 +184,7 @@ export class DexText {
 		effect: TextEffect, lang: TextLanguage = 'en'
 	): EffectText {
 		if (!('effectType' in effect)) {
-			return { name: this.tagName(effect.name, lang) };
+			return { name: DexText.tagName(effect.name, lang) };
 		}
 		let table: EffectTextTable;
 		switch (effect.effectType) {
@@ -76,8 +196,8 @@ export class DexText {
 				...(species.forme ? { forme: species.forme } : {}),
 			};
 		}
-		case 'Nature': return { name: this.otherName('NatureNames', effect.name, lang) };
-		case 'Type': case 'EffectType': return { name: this.otherName('TypeNames', effect.name, lang) };
+		case 'Nature': return { name: DexText.otherName('NatureNames', effect.name, lang) };
+		case 'Type': case 'EffectType': return { name: DexText.otherName('TypeNames', effect.name, lang) };
 		case 'Item': table = 'Items'; break;
 		case 'Ability': table = 'Abilities'; break;
 		case 'Move': table = 'Moves'; break;
@@ -99,40 +219,13 @@ export class DexText {
 		};
 	}
 
-	typeName(name: string, lang: TextLanguage = 'en'): string {
-		return this.otherName('TypeNames', name, lang);
+	private static tagName(name: string, lang: TextLanguage): string {
+		const id = toID(name);
+		return (this.loadRawTextData(lang).Tags[id]?.name ?? this.loadRawTextData().Tags[id]?.name) || name;
 	}
 
-	natureName(name: string, lang: TextLanguage = 'en'): string {
-		return this.otherName('NatureNames', name, lang);
-	}
-
-	categoryName(name: string, lang: TextLanguage = 'en'): string {
-		return this.tagName(name, lang);
-	}
-
-	tagName(name: string, lang: TextLanguage = 'en'): string {
-		return this.dex.loadTextData(lang).Tags[toID(name)]?.name || name;
-	}
-
-	genderName(name: string, lang: TextLanguage = 'en'): string {
-		return this.otherName('GenderNames', name, lang);
-	}
-
-	eggGroupName(name: string, lang: TextLanguage = 'en'): string {
-		return this.otherName('EggGroupNames', name, lang);
-	}
-
-	colorName(name: string, lang: TextLanguage = 'en'): string {
-		return this.otherName('ColorNames', name, lang);
-	}
-
-	private otherName(table: OtherNameTable, name: string, lang: TextLanguage): string {
-		let id: string = toID(name);
-		if (table === 'GenderNames') {
-			id = ({ m: 'male', f: 'female', n: 'genderless' } as Record<string, string>)[id] || id;
-		}
-		return this.dex.loadTextData(lang)[table][id] || name;
+	private static otherName(table: OtherNameTable, name: string, lang: TextLanguage): string {
+		return (this.loadRawTextData(lang)[table][name] ?? this.loadRawTextData()[table][name]) || name;
 	}
 }
 
@@ -151,15 +244,7 @@ function createTL(language: string) {
 	function translate(text: string | TextEffect, context?: string): string;
 	function translate(strings: TemplateStringsArray | string | TextEffect, ...values: unknown[]): string {
 		if (typeof strings !== 'string' && !Array.isArray(strings)) {
-			const effect = strings as TextEffect;
-			if ('effectType' in effect) {
-				switch (effect.effectType) {
-				case 'Move': return text.Moves[effect.id]?.name || effect.name;
-				case 'Item': return text.Items[effect.id]?.name || effect.name;
-				case 'Ability': return text.Abilities[effect.id]?.name || effect.name;
-				}
-			}
-			return Dex.text.get(effect, language as TextLanguage).name;
+			return DexText.getName(strings as TextEffect, language as TextLanguage);
 		}
 
 		let source: string;
@@ -183,7 +268,10 @@ function createTL(language: string) {
 		});
 	}
 
-	const text = Dex.loadTextData(language as TextLanguage);
+	const english = DexText.loadRawTextData();
+	const localized = DexText.loadRawTextData(language as TextLanguage);
+	const text = DexText.resolveOtherNameTables(english, localized);
+	const tags = DexText.resolveTagsTable(english.Tags, localized.Tags);
 	const TL = Object.assign(translate, {
 		/** `TL.label("Ability", "Intimidate")` === `"Ability: Intimidate"` */
 		label(label: string, value?: unknown) {
@@ -210,6 +298,9 @@ function createTL(language: string) {
 			const last = items[items.length - 1];
 			return list + TL`, and ${last}`;
 		},
+		commaList(items: readonly string[]) {
+			return items.join(TL`, ${''}`);
+		},
 		/** Asian translations use "person" counters, so don't use this for non-people */
 		cappedUserList(items: readonly string[], cap: number) {
 			if (items.length > cap + 1) {
@@ -224,20 +315,23 @@ function createTL(language: string) {
 		nature: text.NatureNames,
 		gender: text.GenderNames,
 		egggroup: text.EggGroupNames,
-		tag: tagField(text.Tags, 'name'),
-		tagHint: tagField(text.Tags, 'hint'),
+		tag: tagField(tags, 'name'),
+		tagHint: tagField(tags, 'hint'),
 		color: text.ColorNames,
 		status: text.StatusNames,
 		target: text.TargetNames,
 		stat: text.StatNames,
 		statShort: text.StatShortNames,
 		statMedium: text.StatMediumNames,
-		ui: { ...Dex.loadTextData('en').Default.ui, ...text.Default.ui } as Record<string, string>,
+		ui: {
+			...english.Default.ui,
+			...localized.Default.ui,
+		} as Record<string, string>,
 	});
 	return TL;
 }
 
-function tagField(tags: ReturnType<ModdedDex['loadTextData']>['Tags'], field: 'name' | 'hint' | 'desc') {
+function tagField(tags: DexTable<ResolvedTagText>, field: 'name' | 'hint' | 'desc') {
 	const table: Record<string, string> = {};
 	for (const id in tags) {
 		const value = tags[id][field];
