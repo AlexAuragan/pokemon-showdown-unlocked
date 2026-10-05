@@ -113,8 +113,8 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 		banlist: [
 			'Basculin-White-Striped', 'Cutiefly', 'Diglett-Base', 'Dunsparce', 'Duraludon', 'Flittle', 'Gastly', 'Girafarig', 'Gligar',
 			'Magby', 'Meditite', 'Misdreavus', 'Murkrow', 'Porygon', 'Qwilfish-Hisui', 'Rufflet', 'Scraggy', 'Scyther', 'Shellder', 'Sneasel',
-			'Sneasel-Hisui', 'Snivy', 'Stantler', 'Torchic', 'Voltorb-Hisui', 'Vulpix', 'Vulpix-Alola', 'Yanma', 'Moody', 'Heat Rock', 'Baton Pass',
-			'Sticky Web',
+			'Sneasel-Hisui', 'Snivy', 'Stantler', 'Torchic', 'Voltorb-Hisui', 'Vullaby', 'Vulpix', 'Vulpix-Alola', 'Yanma', 'Moody', 'Heat Rock',
+			'Baton Pass', 'Sticky Web',
 		],
 	},
 	{
@@ -418,19 +418,10 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 		ruleset: ['[Gen 9] LC'],
 		banlist: [
 			'Chinchou', 'Diglett-Alola', 'Elekid', 'Foongus', 'Glimmet', 'Gothita', 'Growlithe-Hisui', 'Impidimp', 'Mareanie', 'Mienfoo', 'Mudbray',
-			'Sandshrew-Alola', 'Shellos', 'Stunky', 'Tinkatink', 'Toedscool', 'Vullaby', 'Zorua-Hisui',
+			'Sandshrew-Alola', 'Shellos', 'Stunky', 'Tinkatink', 'Toedscool', 'Zorua-Hisui',
 			// LC UUBL
 			'Deerling', 'Minccino', 'Light Clay',
 		],
-	},
-	{
-		name: "[Gen 9] Monocolor",
-		desc: `All Pok&eacute;mon on a team must share a color.`,
-		mod: 'gen9',
-		searchShow: false,
-		ruleset: ['[Gen 9] OU', 'Same Color Clause'],
-		banlist: ['Ogerpon-Wellspring', 'Regieleki'],
-		unbanlist: ['Archaludon', 'Volcarona', 'Tera Blast'],
 	},
 	{
 		name: "[Gen 9] NFE",
@@ -444,6 +435,36 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 			'Sneasel-Hisui', 'Ursaring', 'Vigoroth', 'Vulpix-Base', 'Arena Trap', 'Magnet Pull', 'Moody', 'Shadow Tag', 'Toxic Debris', 'Baton Pass',
 			'Toxic Spikes',
 		],
+	},
+	{
+		name: "[Gen 9] Statmons",
+		desc: `All Pok&eacute;mon on a team must have the same base stat be higher than 100.`,
+		mod: `gen9`,
+		searchShow: false,
+		ruleset: ['Standard', 'Evasion Abilities Clause', 'Sleep Moves Clause', '!Sleep Clause Mod'],
+		banlist: ['AG', 'Uber', 'Arena Trap', 'Moody', 'Shadow Tag', 'King\'s Rock', 'Razor Fang', 'Baton Pass', 'Last Respects', 'Tera Blast', 'Shed Tail'],
+		onValidateTeam(team) {
+			let statsTable: string[] = [];
+			for (const [i, set] of team.entries()) {
+				let species = this.dex.species.get(set.species);
+				if (!species.types) return [`Invalid pokemon ${set.name || set.species}`];
+				if (i === 0) {
+					statsTable = Object.keys(species.baseStats).filter(stat => species.baseStats[stat as StatID] > 100);
+				} else {
+					statsTable = statsTable.filter(stat => species.baseStats[stat as StatID] > 100);
+				}
+				const item = this.dex.items.get(set.item);
+				if (item.megaStone?.[species.name]) {
+					species = this.dex.species.get(item.megaStone[species.name]);
+					statsTable = statsTable.filter(stat => species.baseStats[stat as StatID] > 100);
+				}
+				if (item.id === "ultranecroziumz" && species.baseSpecies === "Necrozma") {
+					species = this.dex.species.get("Necrozma-Ultra");
+					statsTable = statsTable.filter(stat => species.baseStats[stat as StatID] > 100);
+				}
+				if (!statsTable.length) return [`All Pok\u00e9mon on your team must have the same base stat over 100.`];
+			}
+		},
 	},
 	{
 		name: "[Gen 9] Ubers UU",
@@ -753,34 +774,13 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 		},
 	},
 	{
-		name: "[Gen 9] Statmons",
-		desc: `All Pok&eacute;mon on a team must have the same base stat be higher than 100.`,
-		mod: `gen9`,
-		searchShow: false,
-		ruleset: ['Standard', 'Evasion Abilities Clause', 'Sleep Moves Clause', '!Sleep Clause Mod'],
-		banlist: ['AG', 'Uber', 'Arena Trap', 'Moody', 'Shadow Tag', 'King\'s Rock', 'Razor Fang', 'Baton Pass', 'Last Respects', 'Tera Blast', 'Shed Tail'],
-		onValidateTeam(team) {
-			let statsTable: string[] = [];
-			for (const [i, set] of team.entries()) {
-				let species = this.dex.species.get(set.species);
-				if (!species.types) return [`Invalid pokemon ${set.name || set.species}`];
-				if (i === 0) {
-					statsTable = Object.keys(species.baseStats).filter(stat => species.baseStats[stat as StatID] > 100);
-				} else {
-					statsTable = statsTable.filter(stat => species.baseStats[stat as StatID] > 100);
-				}
-				const item = this.dex.items.get(set.item);
-				if (item.megaStone?.[species.name]) {
-					species = this.dex.species.get(item.megaStone[species.name]);
-					statsTable = statsTable.filter(stat => species.baseStats[stat as StatID] > 100);
-				}
-				if (item.id === "ultranecroziumz" && species.baseSpecies === "Necrozma") {
-					species = this.dex.species.get("Necrozma-Ultra");
-					statsTable = statsTable.filter(stat => species.baseStats[stat as StatID] > 100);
-				}
-				if (!statsTable.length) return [`All Pok\u00e9mon on your team must have the same base stat over 100.`];
-			}
-		},
+		name: "[Gen 9] Monocolor",
+		desc: `All Pok&eacute;mon on a team must share a color.`,
+		mod: 'gen9',
+		// searchShow: false,
+		ruleset: ['[Gen 9] OU', 'Same Color Clause'],
+		banlist: ['Ogerpon-Wellspring', 'Regieleki'],
+		unbanlist: ['Archaludon', 'Volcarona', 'Tera Blast'],
 	},
 	{
 		name: "[Gen 9] National Dex Doubles Ubers",
@@ -792,6 +792,7 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 	},
 	{
 		name: "[Gen 9] Random Tandem",
+		desc: "A Bring 9, Pick 6 style format where your 3 Pokemon generate Tandems when you battle.",
 		threads: [
 			`&bullet; <a href="https://www.smogon.com/forums/threads/3775975/">Random Tandem Thread</a>`,
 			`&bullet; <a href="https://docs.google.com/spreadsheets/d/1AXIB0pnS_YZTz186-phfZCRspcoj0bOLG4TlZTp0KVg/edit">Tandem Compendium</a>`,
@@ -800,7 +801,7 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 		mod: 'gen9randomtandem',
 		bestOfDefault: true,
 		// searchShow: false,
-		ruleset: ['Standard', 'Evasion Abilities Clause', 'Sleep Moves Clause', '!Sleep Clause Mod'],
+		ruleset: ['Standard', 'Evasion Abilities Clause', 'Sleep Moves Clause'],
 		banlist: [
 			'Uber', 'AG', 'Arena Trap', 'Moody', 'Shadow Tag', 'King\'s Rock', 'Razor Fang', 'Baton Pass',
 			'Last Respects', 'Shed Tail', 'Ceruledge', 'Raging Bolt', 'Kingambit',
@@ -824,7 +825,7 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 		},
 		onBegin() {
 			this.ruleTable.pickedTeamSize = 6;
-			this.add(`raw|<div class="broadcast-green"><strong>Welcome to Random Tandem!</strong><br>You can find our thread and metagame resources <a href="https://www.smogon.com/forums/threads/3711007/post-11052905" target="_blank">here</a>.<br>Be sure to swing by the <a href="https://play.pokemonshowdown.com/petmods" target="_blank">Pet Mods room</a> to discuss the metagame and participate in roomtours!</div>`);
+			this.add(`raw|<div class="broadcast-green"><strong>Welcome to Random Tandem!</strong><br>You can find our thread and metagame resources <a href="https://www.smogon.com/forums/threads/3775975/" target="_blank">here</a>.<br>Be sure to swing by the <a href="https://play.pokemonshowdown.com/petmods" target="_blank">Pet Mods room</a> to discuss the metagame and participate in roomtours!</div>`);
 			this.add(`raw|<b>Make sure to check out the <a href="https://docs.google.com/spreadsheets/d/1AXIB0pnS_YZTz186-phfZCRspcoj0bOLG4TlZTp0KVg/" target="_blank">spreadsheet</a> for all the Heads and Tandems!</b>`);
 		},
 	},
@@ -3794,9 +3795,9 @@ export const Formats: import('../sim/dex-formats').FormatList = [
 		],
 		unbanlist: [
 			'Abomasnow-Base', 'Altaria-Base', 'Ampharos-Base', 'Appletun', 'Arboliva', 'Avalugg-Base', 'Brambleghast', 'Dewgong', 'Dusknoir', 'Eelektross-Base',
-			'Florges', 'Gastrodon', 'Golem-Base', 'Grafaiai', 'Granbull', 'Grumpig', 'Hariyama', 'Hitmontop', 'Honchkrow', 'Klefki', 'Luvdisc', 'Lycanroc-Base',
-			'Maushold', 'Mimikyu-Base', 'Morpeko-Base', 'Oinkologne-M', 'Primeape', 'Raticate-Base', 'Spidops', 'Spiritomb', 'Sudowoodo', 'Swalot',
-			'Tatsugiri-Curly', 'Tatsugiri-Droopy', 'Tatsugiri-Stretchy', 'Thwackey', 'Wyrdeer', 'Ultranecrozium Z', 'Solganium Z', 'Lunalium Z', 'Mewnium Z',
+			'Florges', 'Gastrodon', 'Golem-Base', 'Granbull', 'Grumpig', 'Hariyama', 'Hitmontop', 'Honchkrow', 'Klefki', 'Luvdisc', 'Lycanroc-Base', 'Maushold',
+			'Mimikyu-Base', 'Morpeko-Base', 'Oinkologne-M', 'Primeape', 'Raticate-Base', 'Spidops', 'Spiritomb', 'Sudowoodo', 'Swalot', 'Tatsugiri-Curly',
+			'Tatsugiri-Droopy', 'Tatsugiri-Stretchy', 'Thwackey', 'Trapinch', 'Wyrdeer', 'Ultranecrozium Z', 'Solganium Z', 'Lunalium Z', 'Mewnium Z',
 			'Marshadium Z', 'Yawn',
 		],
 		// Stupid hardcode
